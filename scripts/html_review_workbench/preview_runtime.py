@@ -29,6 +29,15 @@ class ReviewPreviewHandler(SimpleHTTPRequestHandler):
     state_route_prefix = "/annotations/state/"
     events_route = "/events"
     _last_activity: float = 0.0
+    # rhw-local-patch: utf8-text-refs
+    # 出典として bundle に写した Markdown・テキストを、ブラウザが文字化けせずに画面に表示するよう UTF-8 の text/plain で配る
+    extensions_map = {
+        **SimpleHTTPRequestHandler.extensions_map,
+        ".md": "text/plain; charset=utf-8",
+        ".markdown": "text/plain; charset=utf-8",
+        ".txt": "text/plain; charset=utf-8",
+        ".csv": "text/plain; charset=utf-8",
+    }
     _lock = threading.Lock()
 
     @classmethod
