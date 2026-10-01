@@ -179,11 +179,19 @@ class ReviewPreviewHandler(SimpleHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-        last_id_str = self.headers.get("Last-Event-ID", "0")
-        try:
-            last_id = int(last_id_str)
-        except ValueError:
-            last_id = 0
+        # rhw-local-patch: sse-start-at-head
+        # A fresh EventSource (page load or reload) sends no Last-Event-ID. Replaying the
+        # retained history to it re-delivers past document_updated events, so the update
+        # banner reappears on every reload. Start such connections at the current head.
+        # Automatic reconnects do send the header and still get the missed events.
+        last_id_str = self.headers.get("Last-Event-ID")
+        if last_id_str is None:
+            last_id = self.event_bus.last_id
+        else:
+            try:
+                last_id = int(last_id_str)
+            except ValueError:
+                last_id = 0
 
         try:
             for event in self.event_bus.subscribe(last_event_id=last_id):
