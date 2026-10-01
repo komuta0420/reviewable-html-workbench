@@ -160,6 +160,16 @@ def validate_comments_payload(payload: dict[str, Any]) -> None:
     errors = validate(payload, _comments_schema())
     if errors:
         raise CommentStoreError("; ".join(f"{error.path}: {error.message}" for error in errors))
+    # rhw-local-patch: reject-unencodable-comments
+    # UTF-8 へ変換できない文字（対になっていないサロゲート半片など）が 1 つでも混じっていると、
+    # 保存のときに変換で失敗してファイルが壊れる。入口で弾いて 400 を返す。
+    try:
+        json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise CommentStoreError(
+            "comments payload contains text that cannot be encoded as UTF-8 "
+            f"(lone surrogate or similar) at position {exc.start}: {exc.reason}"
+        ) from exc
 
 
 def resolve_comments_path(root: Path, comments_path: str = DEFAULT_COMMENTS_PATH) -> Path:

@@ -57,7 +57,16 @@ class ReviewPreviewHandler(SimpleHTTPRequestHandler):
         self.touch_activity()
         path = self._path()
         if path == self.comments_route:
-            self._send_json(self.store.read(self._document_id()))
+            # rhw-local-patch: always-answer-get
+            # comments.json が壊れていても応答を返す。捕まえないと接続が切れるだけで、
+            # ブラウザ側には「読めなかった」ことしか伝わらない。
+            try:
+                self._send_json(self.store.read(self._document_id()))
+            except Exception as exc:
+                self._send_json(
+                    {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
             return
         if path == self.events_route:
             self._handle_sse()
@@ -78,8 +87,17 @@ class ReviewPreviewHandler(SimpleHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(_content_length(self)).decode("utf-8"))
             self.store.write(payload)
-        except (json.JSONDecodeError, CommentStoreError) as exc:
+        except (json.JSONDecodeError, CommentStoreError, UnicodeDecodeError, UnicodeEncodeError) as exc:
             self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            # rhw-local-patch: always-answer-put
+            # 何が起きても応答を返す。無応答だとブラウザ側は保存の成否を判断できず、
+            # 原因も残らない（実害 2026-08-05: UnicodeEncodeError が捕まらず接続が切れた）。
+            self._send_json(
+                {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
             return
         source = self.headers.get("X-Comment-Source", "browser")
         self.event_bus.publish("comment_updated", {"source": source})

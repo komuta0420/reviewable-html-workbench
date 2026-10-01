@@ -71,9 +71,31 @@ def _pid_is_alive_windows(pid: int) -> bool:
 
 
 def write_json(path: Path, payload: dict[str, Any], *, ensure_parent: bool = False, indent: int | None = 2) -> None:
+    """JSON を不可分に書く。
+
+    # rhw-local-patch: atomic-write-json
+    Path.write_text はファイルを 0 バイトに切り詰めてから書くので、書いている途中で
+    UTF-8 への変換に失敗すると中身が全部消える（実害 2026-08-05: 対になっていない
+    サロゲート半片を含むコメントで comments.json が 0 バイトになった）。
+    ここでは先にバイト列まで作り、一時ファイルへ書いてから os.replace で差し替える。
+    """
     if ensure_parent:
         path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=indent) + "\n", encoding="utf-8")
+    # 変換を書き込みより先に済ませる。ここで例外が出た時点では既存ファイルに触れていない。
+    data = (json.dumps(payload, ensure_ascii=False, indent=indent) + "\n").encode("utf-8")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def unique_path(path: Path, *, on_exhausted: Callable[[Path], Exception]) -> Path:

@@ -305,8 +305,13 @@
       {
         blockId: block.dataset.reviewBlock,
         selectedText: text,
-        prefix: offset >= 0 ? blockText.slice(Math.max(0, offset - 48), offset) : "",
-        suffix: offset >= 0 ? blockText.slice(offset + text.length, offset + text.length + 48) : "",
+        /* rhw-local-patch: no-split-surrogate */
+        /* slice は UTF-16 の単位で切るので、絵文字（サロゲートペア 2 単位）の真ん中で切ると
+           対になっていない半片が残り、保存のときに UTF-8 へ変換できなくなる（実害 2026-08-05）。
+           切った両端に半片が残っていたら落とす。offset は UTF-16 基準のまま使うので、
+           ハイライトの位置合わせには影響しない。 */
+        prefix: offset >= 0 ? trimLoneSurrogates(blockText.slice(Math.max(0, offset - 48), offset)) : "",
+        suffix: offset >= 0 ? trimLoneSurrogates(blockText.slice(offset + text.length, offset + text.length + 48)) : "",
         anchor,
       },
       getRangeRect(range),
@@ -1770,3 +1775,27 @@
     document.body.prepend(banner);
   }
 })();
+  /* rhw-local-patch: no-split-surrogate */
+  /* 文字列の両端に残ったサロゲートの半片を落とす。
+     先頭が下位サロゲート（0xDC00-0xDFFF）なら、その前で文字が切られた半片。
+     末尾が上位サロゲート（0xD800-0xDBFF）なら、その後ろで切られた半片。
+     どちらも単独では UTF-8 へ変換できないので捨てる。 */
+  function trimLoneSurrogates(value) {
+    let text = typeof value === "string" ? value : "";
+    if (!text) {
+      return text;
+    }
+    const first = text.charCodeAt(0);
+    if (first >= 0xDC00 && first <= 0xDFFF) {
+      text = text.slice(1);
+    }
+    if (!text) {
+      return text;
+    }
+    const last = text.charCodeAt(text.length - 1);
+    if (last >= 0xD800 && last <= 0xDBFF) {
+      text = text.slice(0, -1);
+    }
+    return text;
+  }
+
