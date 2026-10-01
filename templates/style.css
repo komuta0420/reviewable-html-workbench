@@ -208,7 +208,17 @@ body {
 .view.active { display: block; }
 
 /* Desktop reading layout */
-.doc-shell { max-width: 1600px; margin: 0 auto; padding: var(--sp-7) var(--sp-6) var(--sp-8); }
+/* rhw-local-patch: wide content column */
+/* 本文の列を広げ、目次の左に空く余白を半分にする。
+   既定の max-width: 1600px は、1920px 幅の画面で左右に 160px ずつ余白を作り、
+   そのぶん中央の本文が狭くなる（1920 の画面で本文の列は約 908px）。
+   画面幅基準に変えると同じ画面で約 1,180px になり、広い表と画面写しが読める。
+   左右の padding は 32px（--sp-6）から半分の 16px にする。 */
+.doc-shell {
+  max-width: min(96vw, 2100px);
+  margin: 0 auto;
+  padding: var(--sp-7) calc(var(--sp-6) / 2) var(--sp-8);
+}
 .doc-grid {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr) 332px;
@@ -233,6 +243,20 @@ body {
 .toc li a.current { color: var(--ink); border-left-color: var(--brand); font-weight: 600; }
 .toc-list > li.toc-h2 { font-weight: 600; margin-top: var(--sp-2); }
 .toc-list > li.toc-h2 > ol { font-weight: 400; margin-left: var(--sp-3); font-size: 0.9em; }
+/* 目次の番号は本文の自動番号と同じ数え方にする (本文だけに番号が出て目次に出ない、を防ぐ) */
+.toc-list { counter-reset: toc-h2; }
+.toc-list > li.toc-h2:has(> a) { counter-increment: toc-h2; }
+.toc-list > li.toc-h2 > ol { counter-reset: toc-h3; }
+.toc-list > li.toc-h2 > ol > li { counter-increment: toc-h3; }
+.toc-list > li.toc-h2 > a, .toc-list > li.toc-h2 > ol > li > a { justify-content: flex-start; }
+.toc-list > li.toc-h2 > a::before {
+  content: counter(toc-h2) ".";
+  font-family: var(--font-mono); font-weight: 500; color: var(--ink-faint); flex: 0 0 auto;
+}
+.toc-list > li.toc-h2 > ol > li > a::before {
+  content: counter(toc-h2) "." counter(toc-h3);
+  font-family: var(--font-mono); font-weight: 500; color: var(--ink-faint); flex: 0 0 auto;
+}
 
 /* Main column = the paper */
 .doc-main { min-width: 0; }
@@ -319,10 +343,17 @@ h1.doc-title { font-family: var(--font-serif); font-weight: 700; font-size: var(
 .review-block > h3 .sec-no { font-family: var(--font-mono); font-size: 13px; color: var(--ink-faint); font-weight: 500; margin-right: 8px; }
 .review-block > h4 { font-size: var(--fs-body); font-weight: 600; margin: var(--sp-4) 0 var(--sp-2); }
 .review-block > h4 .sub-sec-no, .block-content h4 .sub-sec-no { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); font-weight: 500; margin-right: 6px; }
-.prose.autonum { counter-reset: h2 h3 h4; }
-.prose.autonum .review-block:has(> h2) { counter-increment: h2; counter-reset: h3 h4; }
-.prose.autonum .review-block:has(> h3) { counter-increment: h3; counter-reset: h4; }
+.prose.autonum { counter-reset: h2 h3 h4 h4seq; }
+/* review-block は入れ子ではなく兄弟として並ぶ。counter-reset を使うとその要素の中だけに
+   新しいカウンタができ、あとに続く兄弟の見出しには効かないため、章が変わっても番号が
+   戻らない。counter-set は親スコープにある既存のカウンタの値だけを 0 にするので、
+   兄弟の見出しにも効く。 */
+.prose.autonum .review-block:has(> h2) { counter-increment: h2; counter-set: h3 0 h4 0 h4seq 0; }
+.prose.autonum .review-block:has(> h3) { counter-increment: h3; counter-set: h4 0; }
 .prose.autonum .review-block > h4, .prose.autonum .block-content h4 { counter-increment: h4; }
+/* seq-num を付けた h4 は、節をまたいで章の中の通し番号 (1. 2. 3. …) を振る。
+   項目が章全体で何個あるかを本文で数えている章に使う。 */
+.prose.autonum .review-block > h4.seq-num, .prose.autonum .block-content h4.seq-num { counter-increment: h4seq; }
 .prose.autonum .sec-no, .prose.autonum .sub-sec-no { display: none; }
 .prose.autonum .review-block > h2::before {
   content: counter(h2) ".";
@@ -338,6 +369,9 @@ h1.doc-title { font-family: var(--font-serif); font-weight: 700; font-size: var(
   content: counter(h2) "." counter(h3) "." counter(h4);
   font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink-3);
   margin-right: 8px; letter-spacing: 0;
+}
+.prose.autonum .review-block > h4.seq-num::before, .prose.autonum .block-content h4.seq-num::before {
+  content: counter(h4seq) ".";
 }
 .prose p { margin: 0; max-width: none; text-wrap: pretty; }
 .prose a { color: var(--brand); text-decoration: underline; text-underline-offset: 2px; }
@@ -466,9 +500,6 @@ h1.doc-title { font-family: var(--font-serif); font-weight: 700; font-size: var(
   word-break: normal;
 }
 .block-content th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   background: var(--paper-2);
   border-top: 1px solid var(--line-1);
   color: var(--ink-2);
@@ -477,8 +508,18 @@ h1.doc-title { font-family: var(--font-serif); font-weight: 700; font-size: var(
   letter-spacing: .06em;
   text-transform: uppercase;
 }
-.block-content th:first-child,
-.block-content td:first-child {
+/* rhw-local-patch: rowspan-safe table columns */
+/* ヘッダ行の固定は thead だけに掛ける。tbody の行見出し（th scope="row"）まで
+   sticky にすると、本文のセルが浮いて列の位置がずれる。 */
+.block-content thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+/* 1 列目の固定。:first-child は「その行の最初の要素」なので、rowspan で束ねた列がある表では
+   行によって指す列が変わる。そういう表では固定も 1 列目の書式も掛けない。 */
+.block-content table:not(:has(th[rowspan], td[rowspan])) th:first-child,
+.block-content table:not(:has(th[rowspan], td[rowspan])) td:first-child {
   position: sticky;
   left: 0;
   z-index: 1;
@@ -489,9 +530,14 @@ h1.doc-title { font-family: var(--font-serif); font-weight: 700; font-size: var(
   box-shadow: 1px 0 0 var(--line-1);
   font-weight: 600;
 }
-.block-content th:first-child {
+.block-content table:not(:has(th[rowspan], td[rowspan])) th:first-child {
   z-index: 3;
   background: var(--paper-2);
+}
+/* rowspan で束ねたセルは、固定表示の代わりに書体で区別する。 */
+.block-content td[rowspan] {
+  font-weight: 600;
+  color: var(--ink);
 }
 
 .block-content pre {
@@ -582,6 +628,12 @@ table.cmp th.axis, table.cmp td.axis {
   min-width: 168px; box-shadow: 1px 0 0 var(--line-1);
 }
 table.cmp thead th.axis { z-index: 3; background: var(--paper-2); }
+/* rowspan を含む比較表では列の固定を外す（固定したセルは rowspan と両立しない）。 */
+table.cmp:has(th[rowspan], td[rowspan]) thead th,
+table.cmp:has(th[rowspan], td[rowspan]) th.axis,
+table.cmp:has(th[rowspan], td[rowspan]) td.axis {
+  position: static;
+}
 table.cmp tbody tr:hover td { background: color-mix(in srgb, var(--brand) 4%, transparent); }
 table.cmp tbody tr:hover td.axis { background: color-mix(in srgb, var(--brand) 6%, var(--paper)); }
 table.cmp tbody tr:last-child td { border-bottom: 0; }
@@ -1232,3 +1284,9 @@ input[type=checkbox][data-task-check] {
 tr.is-checked > td { color: var(--ink-faint); }
 tr.is-checked > td:first-child { color: var(--ink-2); }
 li.is-checked { color: var(--ink-faint); }
+
+/* rhw-local-patch: wide-document-column + utility-in-topbar */
+/* 1. 中央の文書カラムを広げる。左右の外側の余白を半分にして、浮いた幅を中央へ回す。
+      calc(50% + 800px) = 元の 1600px + 余白の半分。画面が狭いときは max-width: 100% で頭打ち。 */
+.doc-shell { width: min(96vw, 2100px); max-width: 100%; }
+.is-focus .doc-shell { width: min(98vw, 2200px); max-width: 100%; }
