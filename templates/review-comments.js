@@ -113,12 +113,189 @@
   const ui = createUi();
   document.body.appendChild(ui.root);
 
+  /* rhw-local-patch: utility-in-topbar */
+  /* comments.json の Export / Import を、右下の固定表示からトップバーへ移す。
+     要素を move するだけなので、後段で付ける click / change のイベントはそのまま効く。 */
+  (function moveUtilityToTopbar() {
+    const utility = ui.root.querySelector(".review-comments-utility");
+    const toolset = document.querySelector(".topbar .toolset");
+    if (!utility || !toolset) {
+      return;
+    }
+    utility.classList.add("in-topbar");
+    if (ui.exportButton) {
+      ui.exportButton.title = "comments.json を書き出す";
+    }
+    const importLabel = utility.querySelector(".review-comments-import");
+    if (importLabel) {
+      importLabel.title = "comments.json を読み込む";
+    }
+    toolset.appendChild(utility);
+  })();
+
+  /* rhw-local-patch: collapse-resolved-threads */
+  /* 解決済みのコメントを既定で 1 行に畳む。スレッドは消さないので履歴は残る。
+     コメント欄の見出しのトグルで全部開き、カードの見出しか引用をクリックすると 1 件だけ開閉する。
+     投稿・返信・解決・再オープンの動作には触れていない（見えるかどうかだけを変える）。 */
+  (function initResolvedCollapse() {
+    const canvas = document.getElementById("canvas") || document.body;
+    const railHead = document.querySelector(".cmt-rail-h");
+    const key = "rhwCollapseResolved_" + documentId;
+    const ja = (document.documentElement.lang || "ja").toLowerCase().indexOf("ja") === 0;
+    const labelOpen = ja ? "解決済みを開く" : "Show resolved";
+    const labelFold = ja ? "解決済みを畳む" : "Fold resolved";
+    let collapsed = localStorage.getItem(key) !== "0";
+    let button = null;
+
+    function apply() {
+      canvas.classList.toggle("collapse-resolved", collapsed);
+      if (button) {
+        button.textContent = collapsed ? labelOpen : labelFold;
+        button.setAttribute("aria-pressed", collapsed ? "false" : "true");
+      }
+      /* カードは高さに合わせて並べ直されるので、再配置を促す */
+      window.dispatchEvent(new Event("resize"));
+    }
+
+    if (railHead) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "rhw-resolved-toggle";
+      button.addEventListener("click", function () {
+        collapsed = !collapsed;
+        localStorage.setItem(key, collapsed ? "1" : "0");
+        apply();
+      });
+      railHead.appendChild(button);
+    }
+
+    document.addEventListener("click", function (event) {
+      const hit = event.target.closest(
+        '.cmt[data-cstate="resolved"] > .cmt-head, .cmt[data-cstate="resolved"] > .cmt-quote'
+      );
+      if (!hit || !canvas.classList.contains("collapse-resolved")) {
+        return;
+      }
+      hit.parentElement.classList.toggle("rhw-expanded");
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    apply();
+  })();
+
   initThemeToggle();
   initFilter();
   initFocusToggle();
   initPublishToggle();
   initTocScrollSpy();
   initCommentRailScroll();
+
+  /* rhw-local-patch: jump-to-anchor */
+  /* コメントから本文の該当箇所へ飛ぶ。カードのダブルクリックと、見出しに足す「本文へ」ボタンの両方で動く。
+     飛び先は本文中のハイライト（.cx[data-comment]）。ハイライトが張れなかったスレッドでは
+     ブロックの端に付く同じ data-comment のバッジが飛び先になる。
+     読み取りだけの機能で、comments.json には触らない。 */
+  (function initJumpToAnchor() {
+    const ja = (document.documentElement.lang || "ja").toLowerCase().indexOf("ja") === 0;
+    const jumpLabel = ja ? "本文へ" : "Go to text";
+    const jumpTitle = ja
+      ? "本文の該当箇所へ移動する（カードのダブルクリックでも移動できる）"
+      : "Scroll the document to this comment (double-clicking the card also works)";
+    let flashTimer = null;
+
+    function anchorFor(commentId) {
+      if (!commentId) {
+        return null;
+      }
+      return document.querySelector(commentSelector(commentId))
+        || document.querySelector('.cx[data-comment-badge="' + cssEscape(commentId) + '"]');
+    }
+
+    /* 閉じた <details> や hidden の中にあるときは、先に開いてからスクロールする */
+    function revealAncestors(element) {
+      let node = element.parentElement;
+      while (node && node !== document.body) {
+        if (node.tagName === "DETAILS" && !node.open) {
+          node.open = true;
+        }
+        if (node.hasAttribute && node.hasAttribute("hidden")) {
+          node.removeAttribute("hidden");
+        }
+        node = node.parentElement;
+      }
+    }
+
+    function flash(element) {
+      if (flashTimer) {
+        clearTimeout(flashTimer);
+        flashTimer = null;
+      }
+      document.querySelectorAll(".rhw-jump-flash").forEach(function (el) {
+        el.classList.remove("rhw-jump-flash");
+      });
+      /* 同じ要素へ連続で飛んだときも点滅をやり直させる */
+      void element.offsetWidth;
+      element.classList.add("rhw-jump-flash");
+      flashTimer = setTimeout(function () {
+        element.classList.remove("rhw-jump-flash");
+        flashTimer = null;
+      }, 2000);
+    }
+
+    function jump(commentId) {
+      const anchor = anchorFor(commentId);
+      if (!anchor) {
+        return false;
+      }
+      revealAncestors(anchor);
+      activate(commentId, true);
+      if (typeof anchor.scrollIntoView === "function") {
+        anchor.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      }
+      flash(anchor);
+      return true;
+    }
+
+    /* カードは renderCommentCards() で作り直されるので、増えたカードへボタンを足し直す */
+    function addButtons(root) {
+      (root || document).querySelectorAll('.cmt[data-for] > .cmt-head:not([data-rhw-jump])').forEach(function (head) {
+        head.setAttribute("data-rhw-jump", "1");
+        const card = head.closest(".cmt[data-for]");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "rhw-jump-btn";
+        button.textContent = jumpLabel;
+        button.title = jumpTitle;
+        button.addEventListener("click", function (event) {
+          /* 見出しのクリックを畳み込みトグルへ伝えない */
+          event.preventDefault();
+          event.stopPropagation();
+          jump(card.dataset.for);
+        });
+        head.appendChild(button);
+      });
+    }
+
+    const layer = document.getElementById("cmtLayer");
+    if (layer && typeof MutationObserver === "function") {
+      new MutationObserver(function () {
+        addButtons(layer);
+      }).observe(layer, { childList: true });
+    }
+    addButtons(document);
+
+    document.addEventListener("dblclick", function (event) {
+      const card = event.target.closest(".cmt[data-for]");
+      if (!card) {
+        return;
+      }
+      /* ボタン・入力欄と、1 クリックが編集開始に割り当てられているコメント本文は対象外 */
+      if (event.target.closest("button, textarea, select, a, [data-thread-comment-display]")) {
+        return;
+      }
+      jump(card.dataset.for);
+    });
+  })();
 
   document.addEventListener("selectionchange", scheduleSelectionCapture);
   document.addEventListener("keyup", scheduleSelectionCapture);
@@ -142,6 +319,284 @@
   });
   ui.exportButton.addEventListener("click", exportComments);
   ui.importInput.addEventListener("change", importComments);
+
+  /* rhw-local-patch: review-ui */
+  /* レビュー画面の改善 7 件（2026-08-06 の要望）。
+     いずれも表示と操作の層だけで完結し、annotations の JSON の形は変えない。 */
+  (function initReviewUi() {
+    const canvas = document.getElementById("canvas") || document.body;
+    const ja = (document.documentElement.lang || "ja").toLowerCase().indexOf("ja") === 0;
+    const L = ja
+      ? { toc: "目次", unresolved: "未解決", resolved: "解決済", fold: "たたむ", unfold: "開く",
+          undo: "戻す", redo: "やり直す", undoTitle: "レビュー操作を 1 つ戻す（削除の取り消しに使う）",
+          redoTitle: "戻した操作をやり直す", tocTitle: "目次の表示を切り替える",
+          empty: "この区分のコメントはありません" }
+      : { toc: "Contents", unresolved: "Open", resolved: "Resolved", fold: "Fold", unfold: "Unfold",
+          undo: "Undo", redo: "Redo", undoTitle: "Undo the last review action",
+          redoTitle: "Redo", tocTitle: "Toggle the table of contents",
+          empty: "No comments in this tab" };
+
+    /* ============ 1. 目次の開閉 ============ */
+    (function tocToggle() {
+      const toolset = document.querySelector(".topbar .toolset");
+      if (!toolset) { return; }
+      const key = "rhwTocHidden_" + documentId;
+      let hidden = localStorage.getItem(key) === "1";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn ghost rhw-toc-toggle";
+      btn.title = L.tocTitle;
+      const apply = function () {
+        canvas.classList.toggle("toc-hidden", hidden);
+        btn.setAttribute("aria-pressed", hidden ? "false" : "true");
+        btn.textContent = (hidden ? "▸ " : "▾ ") + L.toc;
+        window.dispatchEvent(new Event("resize"));
+      };
+      btn.addEventListener("click", function () {
+        hidden = !hidden;
+        localStorage.setItem(key, hidden ? "1" : "0");
+        apply();
+      });
+      toolset.insertBefore(btn, toolset.firstChild);
+      apply();
+    })();
+
+    /* ============ 3. 旧いフィルタ UI を片づける ============ */
+    document.getElementById("filterSelect")?.remove();
+    document.querySelector(".cmt-rail-h .rhw-resolved-toggle")?.remove();
+    canvas.classList.remove("collapse-resolved");
+
+    /* ============ 2. 未解決 / 解決済 のタブ ============ */
+    /* 解決済だけを出す区分を足す。既定の shouldShowThreadByFilter は
+       all / hide-resolved / only-open しか知らないので差し替える。 */
+    const baseShouldShow = shouldShowThreadByFilter;
+    shouldShowThreadByFilter = function (thread) {
+      if (state.filter === "only-resolved") {
+        return threadCardState(thread) === "resolved";
+      }
+      return baseShouldShow(thread);
+    };
+
+    let tabs = null;
+    (function buildTabs() {
+      const railHead = document.querySelector(".cmt-rail-h");
+      if (!railHead) { return; }
+      const key = "rhwReviewTab_" + documentId;
+      const wrap = document.createElement("div");
+      wrap.className = "rhw-tabs";
+      wrap.setAttribute("role", "tablist");
+      const mk = function (value, label) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "rhw-tab";
+        b.setAttribute("role", "tab");
+        b.dataset.value = value;
+        b.innerHTML = label + '<span class="rhw-tab-n"></span>';
+        b.addEventListener("click", function () { select(value); });
+        wrap.appendChild(b);
+        return b;
+      };
+      const openTab = mk("hide-resolved", L.unresolved);
+      const doneTab = mk("only-resolved", L.resolved);
+      tabs = { openTab, doneTab };
+      function select(value) {
+        state.filter = value;
+        localStorage.setItem(key, value);
+        openTab.setAttribute("aria-selected", String(value === "hide-resolved"));
+        doneTab.setAttribute("aria-selected", String(value === "only-resolved"));
+        applyFilterVisibility();
+        refreshCards();
+      }
+      railHead.appendChild(wrap);
+      const saved = localStorage.getItem(key);
+      select(saved === "only-resolved" ? "only-resolved" : "hide-resolved");
+    })();
+
+    function refreshTabCounts() {
+      if (!tabs) { return; }
+      const all = state.comments.comments;
+      const done = all.filter(function (t) { return threadCardState(t) === "resolved"; }).length;
+      tabs.openTab.querySelector(".rhw-tab-n").textContent = String(all.length - done);
+      tabs.doneTab.querySelector(".rhw-tab-n").textContent = String(done);
+    }
+
+    /* ============ 4. スレッドごとの開閉 ============ */
+    function addFoldButtons(root) {
+      (root || document).querySelectorAll(".cmt[data-for]").forEach(function (card) {
+        const foots = card.querySelectorAll(":scope > .cmt-foot");
+        const foot = foots[foots.length - 1];
+        if (!foot || foot.querySelector(".rhw-fold-btn")) { return; }
+        /* 解決済は畳んだ状態から始める */
+        if (card.dataset.cstate === "resolved") { card.classList.add("rhw-folded"); }
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "rhw-fold-btn";
+        const sync = function () {
+          btn.textContent = card.classList.contains("rhw-folded") ? L.unfold : L.fold;
+          btn.setAttribute("aria-expanded", card.classList.contains("rhw-folded") ? "false" : "true");
+        };
+        btn.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          card.classList.toggle("rhw-folded");
+          sync();
+          window.dispatchEvent(new Event("resize"));
+        });
+        foot.appendChild(btn);
+        sync();
+      });
+    }
+
+    function refreshCards() {
+      addFoldButtons(document);
+      refreshTabCounts();
+      window.dispatchEvent(new Event("resize"));
+    }
+
+    const layer = document.getElementById("cmtLayer");
+    if (layer && typeof MutationObserver === "function") {
+      new MutationObserver(function () { refreshCards(); }).observe(layer, { childList: true });
+    }
+
+    /* ============ 5. 戻す / やり直す ============ */
+    const history = { stack: [], index: -1, busy: false };
+    let undoBtn = null;
+    let redoBtn = null;
+
+    function snapshot() {
+      return JSON.stringify(state.comments);
+    }
+    function record() {
+      if (history.busy) { return; }
+      const shot = snapshot();
+      if (history.index >= 0 && history.stack[history.index] === shot) { return; }
+      history.stack = history.stack.slice(0, history.index + 1);
+      history.stack.push(shot);
+      if (history.stack.length > 50) { history.stack.shift(); }
+      history.index = history.stack.length - 1;
+      syncHistoryButtons();
+    }
+    function syncHistoryButtons() {
+      if (undoBtn) { undoBtn.disabled = history.index <= 0; }
+      if (redoBtn) { redoBtn.disabled = history.index >= history.stack.length - 1; }
+    }
+    async function travel(step) {
+      const next = history.index + step;
+      if (next < 0 || next >= history.stack.length) { return; }
+      history.busy = true;
+      history.index = next;
+      state.comments = JSON.parse(history.stack[next]);
+      try {
+        await saveComments();
+      } finally {
+        history.busy = false;
+      }
+      renderComments();
+      syncHistoryButtons();
+    }
+
+    /* コメントの追加・返信・編集・解決・削除はすべて saveComments を通るので、
+       保存が終わるたびに控えを取る。控えはブラウザの中だけに持つ。 */
+    const originalSave = saveComments;
+    saveComments = async function () {
+      const result = await originalSave.apply(this, arguments);
+      record();
+      return result;
+    };
+
+    (function buildHistoryButtons() {
+      const toolset = document.querySelector(".topbar .toolset");
+      if (!toolset) { return; }
+      const wrap = document.createElement("div");
+      wrap.className = "rhw-history";
+      undoBtn = document.createElement("button");
+      undoBtn.type = "button";
+      undoBtn.className = "btn ghost";
+      undoBtn.textContent = "⟲ " + L.undo;
+      undoBtn.title = L.undoTitle;
+      undoBtn.addEventListener("click", function () { travel(-1); });
+      redoBtn = document.createElement("button");
+      redoBtn.type = "button";
+      redoBtn.className = "btn ghost";
+      redoBtn.textContent = "⟳ " + L.redo;
+      redoBtn.title = L.redoTitle;
+      redoBtn.addEventListener("click", function () { travel(1); });
+      wrap.appendChild(undoBtn);
+      wrap.appendChild(redoBtn);
+      toolset.insertBefore(wrap, toolset.firstChild);
+      syncHistoryButtons();
+    })();
+
+    /* ============ 6. 位置がずれたコメントのバッジ ============ */
+    /* 本文が書き換わって選択語が消えると、既定ではブロックの末尾にバッジが付き、
+       カードが本文のずっと下に並ぶ。保存してある文字位置の近くへ差し込む。 */
+    const originalBadge = addBlockCommentBadge;
+    addBlockCommentBadge = function (block, thread, number) {
+      const anchor = thread && thread.anchor;
+      const start = anchor && Number.isInteger(anchor.start) ? anchor.start : -1;
+      if (start < 0) {
+        return originalBadge(block, thread, number);
+      }
+      const nodes = textNodesIn(block);
+      let position = 0;
+      let target = null;
+      let offsetInNode = 0;
+      for (const node of nodes) {
+        const length = (node.nodeValue || "").length;
+        if (start <= position + length) {
+          target = node;
+          offsetInNode = Math.max(0, Math.min(length, start - position));
+          break;
+        }
+        position += length;
+      }
+      if (!target || !target.parentNode) {
+        return originalBadge(block, thread, number);
+      }
+      const badge = document.createElement("button");
+      badge.type = "button";
+      badge.className = "cx review-comment-badge rhw-drifted";
+      badge.dataset.comment = thread.id || "";
+      badge.dataset.commentBadge = thread.id || "";
+      badge.dataset.state = threadCardState(thread);
+      badge.textContent = "Comment " + number;
+      badge.title = ja
+        ? "コメントを付けたときの語が本文から無くなっている。保存してある文字位置のあたりに置いている"
+        : "The commented text no longer exists; placed near the stored character offset";
+      badge.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        activate(thread.id, true);
+      });
+      try {
+        const rest = target.splitText(offsetInNode);
+        rest.parentNode.insertBefore(badge, rest);
+      } catch (_error) {
+        return originalBadge(block, thread, number);
+      }
+    };
+
+    /* ============ 7. 本文中のリンクは新しいタブで開く ============ */
+    function openLinksInNewTab(root) {
+      (root || document).querySelectorAll(".prose a[href], .block-content a[href]").forEach(function (a) {
+        const href = a.getAttribute("href") || "";
+        if (!href || href.charAt(0) === "#") { return; }
+        a.setAttribute("target", "_blank");
+        a.setAttribute("rel", "noopener noreferrer");
+      });
+    }
+    openLinksInNewTab(document);
+
+    /* 初回の読み込みが終わったところで、控えの起点とカードの体裁を整える */
+    const originalRender = renderComments;
+    renderComments = function () {
+      const result = originalRender.apply(this, arguments);
+      refreshCards();
+      openLinksInNewTab(document);
+      if (history.stack.length === 0) { record(); }
+      return result;
+    };
+  })();
 
   loadComments().then(function () {
     schedulePositionCards();
@@ -1575,6 +2030,30 @@
     element.style.visibility = "";
   }
 
+  /* rhw-local-patch: no-split-surrogate */
+  /* 文字列の両端に残ったサロゲートの半片を落とす。
+     先頭が下位サロゲート（0xDC00-0xDFFF）なら、その前で文字が切られた半片。
+     末尾が上位サロゲート（0xD800-0xDBFF）なら、その後ろで切られた半片。
+     どちらも単独では UTF-8 へ変換できないので捨てる。 */
+  function trimLoneSurrogates(value) {
+    let text = typeof value === "string" ? value : "";
+    if (!text) {
+      return text;
+    }
+    const first = text.charCodeAt(0);
+    if (first >= 0xDC00 && first <= 0xDFFF) {
+      text = text.slice(1);
+    }
+    if (!text) {
+      return text;
+    }
+    const last = text.charCodeAt(text.length - 1);
+    if (last >= 0xD800 && last <= 0xDBFF) {
+      text = text.slice(0, -1);
+    }
+    return text;
+  }
+
   function cardId(commentId) {
     return `card-${cssIdentifier(commentId)}`;
   }
@@ -1775,27 +2254,3 @@
     document.body.prepend(banner);
   }
 })();
-  /* rhw-local-patch: no-split-surrogate */
-  /* 文字列の両端に残ったサロゲートの半片を落とす。
-     先頭が下位サロゲート（0xDC00-0xDFFF）なら、その前で文字が切られた半片。
-     末尾が上位サロゲート（0xD800-0xDBFF）なら、その後ろで切られた半片。
-     どちらも単独では UTF-8 へ変換できないので捨てる。 */
-  function trimLoneSurrogates(value) {
-    let text = typeof value === "string" ? value : "";
-    if (!text) {
-      return text;
-    }
-    const first = text.charCodeAt(0);
-    if (first >= 0xDC00 && first <= 0xDFFF) {
-      text = text.slice(1);
-    }
-    if (!text) {
-      return text;
-    }
-    const last = text.charCodeAt(text.length - 1);
-    if (last >= 0xD800 && last <= 0xDBFF) {
-      text = text.slice(0, -1);
-    }
-    return text;
-  }
-

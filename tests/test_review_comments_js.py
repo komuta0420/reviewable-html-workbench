@@ -81,7 +81,12 @@ class ReviewCommentsJavaScriptTest(unittest.TestCase):
 
         # Scrolling the document (the body column) on activation is the bug we
         # removed; only the comment rail may scroll.
-        self.assertNotIn("scrollIntoView", script)
+        # rhw-local-patch: jump-to-anchor
+        # 明示の操作（カードのダブルクリック・見出しの「本文へ」ボタン）でだけ本文を動かす機能を
+        # 足したので、ファイル全体から scrollIntoView を禁じる形はやめる。
+        # 元の意図（活性化と一覧の見せ方では本文を動かさない）はそのまま確かめる。
+        self.assertNotIn("scrollIntoView", activate_block)
+        self.assertNotIn("scrollIntoView", reveal_block)
         self.assertIn("setActiveClasses(commentId);", activate_block)
         self.assertIn("schedulePositionCards();", activate_block)
         self.assertIn("scrollActiveCardIntoView(commentId)", activate_block)

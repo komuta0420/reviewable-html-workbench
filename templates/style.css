@@ -1290,3 +1290,184 @@ li.is-checked { color: var(--ink-faint); }
       calc(50% + 800px) = 元の 1600px + 余白の半分。画面が狭いときは max-width: 100% で頭打ち。 */
 .doc-shell { width: min(96vw, 2100px); max-width: 100%; }
 .is-focus .doc-shell { width: min(98vw, 2200px); max-width: 100%; }
+
+/* 2. comments.json の Export / Import をトップバーの .toolset へ移した分の見た目。
+      右下の浮きボタンをやめ、トップバーの他のボタン（.btn.ghost）と同じ見た目に揃える。 */
+.review-comments-utility.in-topbar {
+  position: static;
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  padding: 0;
+  gap: var(--sp-1);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.review-comments-utility.in-topbar .review-comments-status { display: none; }
+.review-comments-utility.in-topbar button,
+.review-comments-utility.in-topbar .review-comments-import {
+  min-height: 0;
+  padding: 7px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--ink-2);
+  background: transparent;
+  border-color: transparent;
+  border-radius: var(--r-sm);
+}
+.review-comments-utility.in-topbar button:hover,
+.review-comments-utility.in-topbar .review-comments-import:hover {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+/* rhw-local-patch: collapse-resolved-threads */
+/* 解決済みのコメントは、既定では 1 行（見出しと引用の 1 行）に畳む。
+   本文・返信・ボタンは残っているだけで見えないので、削除しなくても画面が埋まらない。
+   #canvas に collapse-resolved が付いている間だけ効く。トグルで全部開く。
+   1 件だけ開くときは、そのカードに rhw-expanded が付く。 */
+.collapse-resolved .cmt[data-cstate="resolved"] { padding-top: 8px; padding-bottom: 8px; }
+.collapse-resolved .cmt[data-cstate="resolved"]:not(.rhw-expanded) > .cmt-body,
+.collapse-resolved .cmt[data-cstate="resolved"]:not(.rhw-expanded) > .cmt-thread,
+.collapse-resolved .cmt[data-cstate="resolved"]:not(.rhw-expanded) > .cmt-resolved-by,
+.collapse-resolved .cmt[data-cstate="resolved"]:not(.rhw-expanded) > .cmt-foot,
+.collapse-resolved .cmt[data-cstate="resolved"]:not(.rhw-expanded) > textarea {
+  display: none;
+}
+.collapse-resolved .cmt[data-cstate="resolved"]:not(.rhw-expanded) > .cmt-head {
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.collapse-resolved .cmt[data-cstate="resolved"]:not(.rhw-expanded) > .cmt-quote {
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.collapse-resolved .cmt[data-cstate="resolved"]:hover { opacity: 1; }
+.collapse-resolved .cmt[data-cstate="resolved"].rhw-expanded { opacity: 1; }
+.collapse-resolved .cmt[data-cstate="resolved"].rhw-expanded > .cmt-head,
+.collapse-resolved .cmt[data-cstate="resolved"].rhw-expanded > .cmt-quote { cursor: pointer; }
+
+/* 解決済みの開閉トグル（コメント欄の見出しに置く） */
+.cmt-rail-h .rhw-resolved-toggle {
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: none;
+  margin-left: auto;
+  margin-right: var(--sp-2);
+  padding: 2px 8px;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cmt-rail-h .rhw-resolved-toggle:hover { color: var(--ink); border-color: var(--line-3); }
+.cmt-rail-h .rhw-resolved-toggle[aria-pressed="true"] { color: var(--ink); border-color: var(--brand); }
+
+/* rhw-local-patch: jump-to-anchor */
+/* コメントの見出しに置く「本文へ」ボタン */
+.cmt-head .rhw-jump-btn {
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  margin-left: auto;
+  padding: 2px 8px;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cmt-head .rhw-jump-btn:hover { color: var(--brand); border-color: var(--brand); }
+.cmt-head .rhw-jump-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* .cmt-state を右端から押し出さないよう、状態のチップは見出しの中で位置を保つ */
+.cmt-head .cmt-state { flex-shrink: 0; }
+
+/* 飛んだ先を 2 秒だけ点滅させる。animation は通常の宣言より強いので、
+   .cx の状態別の背景色（open / reply / resolved）を一時的に上書きして元に戻る。 */
+.rhw-jump-flash {
+  animation: rhw-jump-flash 2s ease-out 1;
+  border-radius: var(--r-xs);
+}
+@keyframes rhw-jump-flash {
+  0%, 55% {
+    background-color: color-mix(in srgb, var(--brand) 40%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rhw-jump-flash { animation-duration: 1ms; }
+}
+
+/* rhw-local-patch: review-ui */
+/* --- 1. 目次の開閉 --------------------------------------- */
+.rhw-toc-toggle { display: inline-flex; align-items: center; gap: 5px; }
+.canvas.toc-hidden .toc { display: none; }
+.canvas.toc-hidden .doc-grid { grid-template-columns: minmax(0, 1fr) 332px; }
+
+/* --- 2. 未解決 / 解決済 のタブ ----------------------------- */
+.cmt-rail-h { flex-wrap: wrap; gap: var(--sp-2); }
+.cmt-rail-h .cmt-rail-count { display: none; }
+.rhw-tabs { display: flex; gap: 2px; width: 100%; margin-top: 2px; }
+.rhw-tab {
+  flex: 1 1 0; font: inherit; font-size: 11px; letter-spacing: .04em; text-transform: none;
+  padding: 5px 8px; cursor: pointer; white-space: nowrap;
+  color: var(--ink-3); background: transparent;
+  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+}
+.rhw-tab:hover { color: var(--ink); }
+.rhw-tab[aria-selected="true"] {
+  color: var(--ink); font-weight: 650;
+  background: var(--paper-2); border-color: var(--brand);
+  box-shadow: inset 0 -2px 0 var(--brand);
+}
+.rhw-tab .rhw-tab-n { font-family: var(--font-mono); margin-left: 4px; }
+/* 3. ヘッダの「すべて / 未解決のみ / 未対応のみ」はタブに置き換えたので隠す */
+.topbar #filterSelect { display: none; }
+
+/* --- 4. スレッドごとの開閉 --------------------------------- */
+.cmt-foot .rhw-fold-btn {
+  margin-left: auto; font: inherit; font-size: 11px; padding: 4px 10px;
+  color: var(--ink-3); background: transparent;
+  border: 1px solid var(--line-2); border-radius: var(--r-pill);
+  cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+.cmt-foot .rhw-fold-btn:hover { color: var(--ink); border-color: var(--line-3); }
+.cmt.rhw-folded > .cmt-body,
+.cmt.rhw-folded > .cmt-thread,
+.cmt.rhw-folded > .cmt-resolved-by,
+.cmt.rhw-folded > textarea,
+.cmt.rhw-folded > .cmt-foot:not(:last-child) { display: none; }
+.cmt.rhw-folded > .cmt-quote {
+  margin: 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cmt.rhw-folded > .cmt-head { margin-bottom: 4px; }
+
+/* --- 5. 戻す / やり直す ------------------------------------ */
+.rhw-history { display: inline-flex; gap: 2px; }
+.rhw-history button { font-family: var(--font-mono); }
+.rhw-history button[disabled] { opacity: .38; cursor: default; }
+
+/* --- 6. 位置がずれたコメントのバッジ ------------------------- */
+.cx.review-comment-badge.rhw-drifted {
+  border-style: dashed;
+  opacity: .9;
+}
+.cx.review-comment-badge.rhw-drifted::after {
+  content: "位置ずれ";
+  font-size: 9px; margin-left: 5px; opacity: .75;
+}
